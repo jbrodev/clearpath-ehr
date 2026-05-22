@@ -56,6 +56,33 @@ Markdown formatting rules (STRICT):
 - Keep the response compact. No section headers like "Key Points", "What It Does", etc. Plain prose only."""
 
 
+ROLE_CONTEXT = {
+    "preop": (
+        "AUDIENCE: A pre-operative nurse or surgical coordinator. They work through a "
+        "queue of upcoming surgeries and coordinate clearance paperwork across PCPs and "
+        "specialists. Frame the clinical_summary and next_steps as actionable items they "
+        "can work through: who to call, what to schedule, what to track. Practical, "
+        "schedule-oriented language. Lead with verbs like 'Schedule', 'Coordinate', "
+        "'Confirm', 'Follow up'."
+    ),
+    "pcp": (
+        "AUDIENCE: A primary care physician (or their MA) who has received a clearance "
+        "request from a surgical office and is being asked to sign off. Frame the "
+        "clinical_summary as a peer-to-peer review summary, and frame the next_steps as a "
+        "checklist of what to confirm, what specialist input to obtain, and what to "
+        "document before signing off. Use peer-to-peer clinical language."
+    ),
+    "surgeon": (
+        "AUDIENCE: A surgical office coordinator who is drafting the initial clearance "
+        "request paperwork to send out to the PCP and any specialists. Frame the "
+        "clinical_summary as a one-paragraph overview the surgeon can attach to a referral "
+        "packet, and frame the next_steps as instructions for assembling the paperwork: "
+        "which letters to draft, which providers to address them to, what clinical "
+        "concerns to highlight in each."
+    ),
+}
+
+
 def build_reasoning_prompt(
     disposition: str,
     risk_level: str,
@@ -68,6 +95,7 @@ def build_reasoning_prompt(
     missing_info: list[str],
     user_query: str,
     current_procedure: str | None = None,
+    role: str | None = None,
 ) -> str:
 
     age = patient_context.get("age", "unknown")
@@ -112,7 +140,11 @@ def build_reasoning_prompt(
         else "Not a major procedure (or none detected) — anchor to whatever procedure the user most recently mentions in the query below"
     )
 
+    role_block = ROLE_CONTEXT.get(role or "", "")
+    role_block_section = f"\n{role_block}\n" if role_block else ""
+
     return f"""The clinical rule engine has determined the disposition. Write only the patient-facing summary and next steps.
+{role_block_section}
 
 DISPOSITION: {disposition.replace('_', ' ').upper()}
 RISK LEVEL: {risk_level.upper()}

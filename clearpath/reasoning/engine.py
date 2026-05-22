@@ -113,6 +113,7 @@ async def enrich_with_reasoning(
     user_query: str,
     current_procedure: str | None = None,
     tier1_triggers: list | None = None,
+    role: str | None = None,
 ) -> ClearanceOutput:
     """
     Call the LLM to generate clinical_summary and recommended_next_steps.
@@ -150,6 +151,7 @@ async def enrich_with_reasoning(
             missing_info=output.missing_information,
             user_query=user_query,
             current_procedure=current_procedure,
+            role=role,
         )
 
         loop = asyncio.get_event_loop()
@@ -593,11 +595,28 @@ _FOLLOWUP_SYSTEM = (
 )
 
 
+_ROLE_FOLLOWUP_HINT = {
+    "preop": (
+        " You are answering a pre-operative nurse / surgical coordinator. Lean toward "
+        "actionable, schedule-oriented guidance ('Schedule X by Y', 'Confirm with Z')."
+    ),
+    "pcp": (
+        " You are answering a primary care physician reviewing a clearance request. "
+        "Use peer-to-peer clinical language. Be direct about what you would do."
+    ),
+    "surgeon": (
+        " You are answering a surgical office coordinator drafting paperwork. Focus on "
+        "what to put in writing and which providers to address."
+    ),
+}
+
+
 async def stream_followup(
     output: ClearanceOutput,
     snapshot: PatientSnapshot,
     question: str,
     history: list[dict],
+    role: str | None = None,
 ):
     """
     Async generator yielding response text chunks for a follow-up question.
@@ -621,8 +640,11 @@ async def stream_followup(
     chart_context = _build_chart_context(output, snapshot)
     question_block = _build_question_block(question, history)
 
+    role_hint = _ROLE_FOLLOWUP_HINT.get(role or "", "")
+    system_text = _FOLLOWUP_SYSTEM + role_hint
+
     system = [
-        {"type": "text", "text": _FOLLOWUP_SYSTEM, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}},
     ]
     user_content = [
         {"type": "text", "text": chart_context, "cache_control": {"type": "ephemeral"}},
