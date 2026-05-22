@@ -5,6 +5,7 @@ Orchestrates all layers: FHIR fetch, normalization, trigger evaluation, decision
 
 from clearpath.fhir.client import FHIRClient, TokenExpiredError
 from clearpath.fhir.normalizer import build_snapshot
+from clearpath.fhir.bundle_split import split_bundle
 from clearpath.engines.medications import classify_medications
 from clearpath.engines.triggers import evaluate_tier1_triggers, evaluate_tier2_factors, compute_rcri
 from clearpath.engines.decision import build_clearance_output, detect_major_procedure
@@ -189,6 +190,55 @@ async def run_clearance_pipeline(
             output.clearance_letter = letter
 
     return output
+
+
+async def run_clearance_from_bundle(
+    bundle: dict,
+    user_query: str,
+    role: str | None = None,
+) -> tuple[ClearanceOutput, "PatientSnapshot", list]:
+    """Same pipeline as run_clearance_pipeline, but takes an inline transaction
+    Bundle instead of fetching from a live FHIR server. Used by the REST API
+    so the web UI can demo without a FHIR server. Returns the output AND the
+    snapshot/triggers so a follow-up chat call doesn't need to redo the work.
+    """
+    fhir_data = split_bundle(bundle)
+    snapshot = build_snapshot(fhir_data)
+
+    raw_med_names = [m.name for m in snapshot.active_medications]
+    classified_meds = classify_medications(raw_med_names)
+    snapshot.active_medications = classified_meds
+
+    tier1_triggers = evaluate_tier1_triggers(snapshot, classified_meds)
+    tier2_factors, tier2_score = evaluate_tier2_factors(snapshot, classified_meds)
+    rcri_score = compute_rcri(snapshot, classified_meds)
+
+    score_result = ScoreResult(
+        total_score=tier2_score,
+        rcri_score=rcri_score,
+        tier1_triggers=tier1_triggers,
+        tier2_factors=tier2_factors,
+    )
+
+    current_procedure = detect_major_procedure(user_query)
+    output = build_clearance_output(snapshot, score_result, user_query=user_query)
+    output = await enrich_with_reasoning(
+        output, snapshot, tier2_factors, user_query, current_procedure,
+        tier1_triggers=tier1_triggers,
+        role=role,
+    )
+
+    if _is_letter_request(user_query):
+        requested_specialty = _detect_requested_specialty(user_query)
+        letter = await generate_clearance_letter(
+            output, snapshot, current_procedure, user_query,
+            tier1_triggers=tier1_triggers,
+            requested_specialty=requested_specialty,
+        )
+        if letter:
+            output.clearance_letter = letter
+
+    return output, snapshot, tier1_triggers
 
 
 def _empty_snapshot() -> PatientSnapshot:

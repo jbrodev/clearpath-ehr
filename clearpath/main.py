@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from clearpath.agent_card import get_agent_card
+from clearpath.api_web import router as web_router
 from clearpath.models.a2a import (
     JSONRPCRequest, JSONRPCResponse, JSONRPCError,
     A2ATask, A2ATaskStatus, A2AArtifact,
@@ -49,6 +50,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
+
+app.include_router(web_router)
 
 
 @app.get("/.well-known/agent-card.json")
